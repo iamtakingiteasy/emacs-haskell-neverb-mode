@@ -10,10 +10,9 @@
   (interactive)
   (message "Using haskell-neverb-indent"))
 
-(defun haskell-neverb-indent ()
+(defun haskell-neverb-indent-line ()
   (interactive)
   (defvar shiftwidth 2)
-  (defvar tabstops)
   (defvar wasidented)
   (setq case-fold-search nil)
   (setq mdata (save-match-data))
@@ -21,6 +20,8 @@
   (setq wasidented nil)
 
   (save-excursion
+	(setq currmuch (current-indentation))
+	(setq currline (substring-no-properties (thing-at-point 'line)))
 	(forward-line -1)
 	(setq prevmuch (current-indentation))
 	(setq prevline (substring-no-properties (thing-at-point 'line))))
@@ -31,21 +32,41 @@
   (if (match-beginning 0)
 	  (setq wasidented t))
 
+;;  (setq tab-stop-list '(1 2 4 8 16))
 
   (if (not wasidented)
 	  (progn
-		(string-match "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\|=\\)\\([[:space:]]\+\\)" prevline)
+		(string-match "^[[:alnum:]]*[[:space:]]*=\\([[:space:]]*\\).*$" prevline)
 
+		(let ((eqmatch (match-end 1)))
+		(if eqmatch
+			  (progn
+				(setq wasidented t)
+				(setq left-margin eqmatch))))))
+  
+
+  (if (not wasidented)
+	  (progn
+		(string-match "^[[:space:]]*\\(where\\|do\\|let\\|if\\|case\\)\\([[:space:]]\+\\).*" currline)
 		(let ((eqmatch (match-end 2)))
 		(if eqmatch
 			  (progn
-				(message (match-string 1 prevline))
 				(setq wasidented t)
-				(setq left-margin eqmatch))))))
+				(setq left-margin (+ shiftwidth prevmuch)))))))
 
 
 
   
+  (if (not wasidented)
+	  (progn
+		(string-match "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\)\\([[:space:]]\+\\)" prevline)
+
+		(let ((eqmatch (match-end 2)))
+		(if eqmatch
+			  (progn
+				(setq wasidented t)
+				(setq left-margin eqmatch))))))
+
   
   (if (not wasidented)
 	  (progn
@@ -72,23 +93,21 @@
 		(string-match "^[^[:space:]]\+" (thing-at-point 'line))
 		(if (/= 0 (match-beginning 0))
 			(setq left-margin prevmuch)
-		  )
-		)
-	)
+		  (setq left-margin (+ prevmuch shiftwidth))
+		  )))
 
   
-  
-  
-  
-
-
-  
-  
-  
+    
   (indent-to-left-margin)
   
   (set-match-data mdata)
 )
+
+
+(defun haskell-neverb-indent ()
+  (interactive)
+  (haskell-neverb-indent-line)
+  )
 
 
 (defun turn-on-haskell-neverb-indent ()
@@ -97,4 +116,3 @@
 
 (provide 'haskell-neverb-indent)
 
-(global-set-key (kbd "<f2>") 'haskell-neverb-indent)
