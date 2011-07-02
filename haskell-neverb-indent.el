@@ -38,6 +38,17 @@
 
   (if (not wasidented)
 	  (progn
+		(apply-regexp "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\)\\([[:space:]]\+\\)" prevline)
+		(let ((eqmatch (match-end 2)))
+		  (if eqmatch
+			  (progn
+				(setq wasidented t)
+				(setq left-margin eqmatch))))))
+
+  
+
+  (if (not wasidented)
+	  (progn
 		(apply-regexp "^[[:alnum:]]*[[:space:]]*=\\([[:space:]]*\\).*$" prevline)
 		(let ((eqmatch (match-end 1)))
 		  (if eqmatch
@@ -68,7 +79,7 @@
 
   (if (not wasidented)
 	  (progn
-		(apply-regexp "^[[:space:]]*\\(where\\|do\\|let\\|if\\|case\\)" currline)
+		(apply-regexp "^[[:space:]]*\\(do\\|let\\|if\\|case\\)" currline)
 		(if (match-beginning 0)
 			(progn
 			  (setq wasidented t)
@@ -76,17 +87,7 @@
 
   (if (not wasidented)
 	  (progn
-		(apply-regexp "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\)\\([[:space:]]\+\\)" prevline)
-		(let ((eqmatch (match-end 2)))
-		  (if eqmatch
-			  (progn
-				(setq wasidented t)
-				(setq left-margin eqmatch))))))
-
-  
-  (if (not wasidented)
-	  (progn
-		(apply-regexp "\\([!#$%&*+./<=>?@\\^|~-]\\|[[:space:]]do\\)$" prevline)
+		(apply-regexp "\\([!#$%&*+./<=>?@\\^|~-]\\|[[:space:]]do\\)[[:space:]]*$" prevline)
 		(if (match-beginning 1)
 			(progn
 			  (setq wasidented t)
