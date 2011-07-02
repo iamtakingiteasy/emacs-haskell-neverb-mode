@@ -25,7 +25,25 @@
 	(setq prevident (current-indentation))) 
   (setq case-fold-search nil)
 
+  (setq mdata (save-match-data))
+  (set-match-data nil)
+;;   (string-match "^[[:space:]]*--.*$" prevline)
+;;   (let ((eqmatch (match-end 0)))
+;;	 (if eqmatch ()
+;;	   (setq wasidented t)
+;;	 )
+;;   )
+   
+  (string-match "^.*\\(case\\|do\\|=\\)\\([[:space:]]*\\).*$" prevline)
+  (let ((eqmatch (match-end 2)))
+	(if eqmatch
+		(progn
+		  (setq wasidented t)
+		  (setq left-margin eqmatch)
+		  (indent-to left-margin))))
 
+
+  
   (string-match "^[[:space:]]*data[^=]*\\(=\\).*$" prevline)
   (let ((eqmatch (match-beginning 1)))
 	(if (string= "=" (match-string 1 prevline))
@@ -43,25 +61,21 @@
 		  (setq left-margin eqmatch)
 		  (indent-to-left-margin))))
 
-  (string-match "^.*\\(case\\|do\\)\\([[:space:]]*\\).*$" prevline)
-  (let ((eqmatch (match-end 2)))
-	(if eqmatch
-		(progn
-		  (setq wasidented t)
-		  (setq left-margin eqmatch)
-		  (indent-to left-margin))))
+
+;;  (if (not wasidented)
+;;	  (beginning-of-line)) 
 
 
-  (if (not wasidented)
-	  (beginning-of-line)) 
-
-  (string-match "^[[:space:]]*$" prevline)
-  (if (and (match-beginning 0) (not wasidented))
+  (string-match "^[[:space:]]\\+$" prevline)
+;;  (message(concat (match-string 0 prevline) " <> " prevline))
+  (if (and (not wasidented) (string< (match-string 0 prevline) prevline))
 	  (progn
 		(setq left-margin prevident)
 		(indent-to-left-margin)
 		))
+  (set-match-data mdata)
   )
+
 
 (defun turn-on-haskell-neverb-indent ()
   (set (make-local-variable 'indent-line-function) 'haskell-neverb-indent)
