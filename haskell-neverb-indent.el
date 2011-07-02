@@ -1,9 +1,15 @@
 ;;; haskell-neverb-indent.el --- Neverb's (itakingiteasy) indentation style
 ;;
-;; Copytight (C) 2011 Alexander Tumin
+;; Copytight (C) 2011 Alexander <itakingiteasy> Tumin
+;;                      <itakingiteasy@neverb.net>
 ;;
+;; Add folowing to your .emacs file:
 ;;
-;; some more stuff to type
+;; (add-hook 'haskell-mode-hook '(lambda () 
+;;								  (interactive) 
+;;                                (turn-on-haskell-neverb-indent)
+;;	        					  (local-set-key (kbd "RET") 'newline-and-indent)))
+;; 
 ;;
 
 (defun haskell-neverb-indent-message ()
