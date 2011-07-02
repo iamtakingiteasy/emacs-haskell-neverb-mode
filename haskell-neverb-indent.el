@@ -34,21 +34,26 @@
 		  (indent-to-left-margin)
 		)))
 
-  (string-match "^[[:space:]]*where\\([[:space:]]*\\).*$" prevline)
-  (let ((eqmatch (match-end 1)))
-	(setq wasidented t)
-	(setq left-margin eqmatch)
-	(indent-to-left-margin)
-	)
-
-
+  (string-match "\
+^[[:space:]]*\
+\\(where\\|do\\|where\\|let\\|case\\|if\\)\
+\\([[:space:]]*\\).*$" prevline)
+  (let ((eqmatch (match-end 2)))
+	(if eqmatch
+		(progn
+		  (message "INSIDFE")
+		  (setq wasidented t)
+		  (setq left-margin eqmatch)
+		  (indent-to-left-margin))))
   
+
+
+  (if (not wasidented)
+	  (beginning-of-line))  
   (string-match "^[[:space:]]*$" prevline)
   (if (match-beginning 0)
 	  (indent-to-column prevident))
-  (if (not wasidented)
-	  (beginning-of-line)
-	)
+
   )
 
 (defun turn-on-haskell-neverb-indent ()
