@@ -15,6 +15,7 @@
   (defvar prevline) (defvar prevident)
   (defvar currline) (defvar currident)
   (defvar wasidented)
+
   (setq wasidented nil)
   (save-excursion 
 	(setq currline (substring-no-properties (thing-at-point 'line)))
@@ -34,26 +35,32 @@
 		  (indent-to-left-margin)
 		)))
 
-  (string-match "\
-^[[:space:]]*\
-\\(where\\|do\\|where\\|let\\|case\\|if\\)\
-\\([[:space:]]*\\).*$" prevline)
+  (string-match "^[[:space:]]*\\(where\\|do\\|where\\|let\\|case\\|if\\)\\([[:space:]]*\\).*$" prevline)
   (let ((eqmatch (match-end 2)))
 	(if eqmatch
 		(progn
-		  (message "INSIDFE")
 		  (setq wasidented t)
 		  (setq left-margin eqmatch)
 		  (indent-to-left-margin))))
-  
+
+  (string-match "^.*\\(case\\|do\\)\\([[:space:]]*\\).*$" prevline)
+  (let ((eqmatch (match-end 2)))
+	(if eqmatch
+		(progn
+		  (setq wasidented t)
+		  (setq left-margin eqmatch)
+		  (indent-to left-margin))))
 
 
   (if (not wasidented)
-	  (beginning-of-line))  
-  (string-match "^[[:space:]]*$" prevline)
-  (if (match-beginning 0)
-	  (indent-to-column prevident))
+	  (beginning-of-line)) 
 
+  (string-match "^[[:space:]]*$" prevline)
+  (if (and (match-beginning 0) (not wasidented))
+	  (progn
+		(setq left-margin prevident)
+		(indent-to-left-margin)
+		))
   )
 
 (defun turn-on-haskell-neverb-indent ()
