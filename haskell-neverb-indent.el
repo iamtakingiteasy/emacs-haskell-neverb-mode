@@ -5,17 +5,17 @@
 ;;
 ;; Add folowing to your .emacs file:
 ;;
-;; (add-hook 'haskell-mode-hook '(lambda () 
-;;   (interactive) 
+;; (add-hook 'haskell-mode-hook '(lambda ()
+;;   (interactive)                                                           
 ;;   (turn-on-haskell-neverb-indent)
-;;	 (local-set-key (kbd "RET") 'newline-and-indent)
+;;   (local-set-key (kbd "RET") 'newline-and-indent)
 ;;   (local-set-key (kbd "DEL") 'haskell-neverb-indent-del)
-;;   (local-set-key (kbd "SPC") 'haskell-neverb-indent-spc)))
-;; 
-;;
+;;   (setq haskell-neverb-tab-indent-on t))) 
+
 
 
 (defvar shiftwidth 2)
+(defvar haskell-neverb-tab-indent-on nil)
 
 (defun haskell-neverb-indent-message ()
   (interactive)
@@ -62,7 +62,7 @@
 
   (if (not wasidented)
 	  (progn
-		(apply-regexp "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\||\\)\\([[:space:]]\+\\)" prevline)
+		(apply-regexp "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\)\\([[:space:]]\+\\)" prevline)
 		(let ((eqmatch (match-end 2)))
 		  (if eqmatch
 			  (progn
@@ -136,11 +136,10 @@
 	(forward-line -1)
 	(setq prevline (substring-no-properties (thing-at-point 'line))))
   
-  (haskell-neverb-indent-line currline prevline)
-  (if (= last-command-char ?\r)
-	  (indent-to-left-margin)   
-	)
-  )
+  (if (or (= last-command-char ?\r) haskell-neverb-tab-indent-on)
+	  (progn
+		(haskell-neverb-indent-line currline prevline)
+		(indent-to-left-margin))))
 
 (defun haskell-neverb-indent-line-del (currline prevline)
   (interactive)
