@@ -23,7 +23,7 @@
 
 
 (defun filter (f &rest xs)
-  (setq result ()ч)
+  (setq result ())
   (setq xs (car xs))
   (setq c (car xs))  
   (while c 
@@ -142,7 +142,7 @@
 	)
   )
 
-(defun haskell-neverb-indent-line-del (currline prevline prevlinefull)
+(defun haskell-neverb-indent-line-del (currline prevline)
   (interactive)
   (setq currmuch (line-get-much currline))
   (setq prevmuch (line-get-much prevline))
@@ -201,7 +201,7 @@
 			  (setq prevcurs prevline)
 			(setq prevcurs (substring prevline 0 currstop))
 			)
-		  (setq backlist (cons (haskell-neverb-indent-line-del currline prevline prevline) backlist))
+		  (setq backlist (cons (haskell-neverb-indent-line-del currline prevline) backlist))
 		  )
 	  )
 	)
