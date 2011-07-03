@@ -20,6 +20,19 @@
 (defun haskell-neverb-indent-message ()
   (interactive)
 	(message "Using haskell-neverb-indent"))
+
+
+(defun filter (f &rest xs)
+  (setq result ()ч)
+  (setq xs (car xs))
+  (setq c (car xs))  
+  (while c 
+	(if (funcall f c) 
+		(setq result (cons c result)))
+	(setq xs (cdr xs))
+	(setq c (car xs))) 
+  (reverse result))
+
 (defun apply-regexp (regex str)
   (set-match-data nil)
   (string-match regex str)
@@ -49,7 +62,7 @@
 
   (if (not wasidented)
 	  (progn
-		(apply-regexp "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\)\\([[:space:]]\+\\)" prevline)
+		(apply-regexp "^.*[[:space:]]\+\\(where\\|do\\|let\\|if\\|case\\||\\)\\([[:space:]]\+\\)" prevline)
 		(let ((eqmatch (match-end 2)))
 		  (if eqmatch
 			  (progn
@@ -129,79 +142,42 @@
 	)
   )
 
-(defun haskell-neverb-indent-line-del (currline prevline)
+(defun haskell-neverb-indent-line-del (currline prevline prevlinefull)
   (interactive)
   (setq currmuch (line-get-much currline))
   (setq prevmuch (line-get-much prevline))
   (setq mdata (save-match-data))
   (set-match-data nil)
   (setq wasidented nil)
+  
+  (setq lm 0)
+  
+;  (if (not wasidented)
+;	  (progn
+;		(apply-regexp "\\(|\\)" prevlinefull)
+;		(let ((eqmatch (match-beginning 1)))
+;		  (if eqmatch
+;			  (progn
+;				(setq wasidented t)
+;				(setq lm eqmatch))))))
 
   (if (not wasidented)
-	  (progn 
-		(apply-regexp ".*\\(|\\)" prevline)
-		(let ((eqmatch (match-beginning 1)))
-		  (if eqmatch
-			  (progn
-				(setq wasidented t)
-				(setq left-margin eqmatch)
-				)
-			)
-		  )
-		)
-	)
-
-
-  (if (not wasidented)
-	  (progn 
-		(apply-regexp ".*[[:space:]]\+\\(do\\|case\\)\\([[:space:]]*\\)" prevline)
+	  (progn
+		(apply-regexp "^.*[[:space:]]\+\\(do\\|case\\||\\)\\([[:space:]]*\\).*$" prevline)
 		(let ((eqmatch (match-end 2)))
 		  (if eqmatch
 			  (progn
 				(setq wasidented t)
-				(setq left-margin eqmatch)
-				)
-			)
-		  )
-		)
-	)
-
-  (if (not wasidented)
-	  (progn
-		(apply-regexp "^[[:space:]]*$" currline)
-		(if (not (match-beginning 0))
-			(progn 
-			  (setq wasidented t)
-			  (setq left-margin currmuch)
-			  )
-		  )
-		)
-	)
-
-  (if (not wasidented)
-	  (if (= left-margin 0)
-		  (progn
-			(setq wasidented t)
-			(setq left-margin prevmuch)
-			)
-		)
-	)
-
+				(setq lm eqmatch))))))
 
   (if (not wasidented)
 	  (progn
 		(setq wasidented t)
-		(setq left-margin prevmuch)
-	  )
-	)
-  (if (and (= left-margin prevmuch) (not wasidented))
-	  (progn
-		(setq wasidented t)
-		(setq left-margin (- left-margin shiftwidth))
-	  )
-	)
+		(setq lm prevmuch)))
   
+
   (set-match-data mdata)  
+  lm
   )
 (defun haskell-neverb-indent-del ()
   (interactive)
@@ -210,27 +186,43 @@
 
   (setq mdata (save-match-data))
   (set-match-data nil)
-
+  (setq backlist ())
   (save-excursion
-	(setq uptocurs (buffer-substring-no-properties (line-beginning-position) (point)))
-	(setq currmuch (current-indentation))
 	(setq currline (substring-no-properties (thing-at-point 'line)))
-	(forward-line -1)
-	(setq prevmuch (current-indentation))
-	(setq prevline (substring-no-properties (thing-at-point 'line)))
-	(apply-regexp "^[[:space:]]*"  currline)
-	(if (> (match-end 0) (length prevline))
-		(setq prevcurs prevline)
-	  (setq prevcurs (substring prevline 0 (match-end 0)))
-	)
+	(apply-regexp "^[[:space:]]*" currline)
+	(setq currstop (match-end 0))
+	(setq endreached nil)
+	(if (>= (+ (line-beginning-position) currstop) (point))
+		(while (not endreached)
+		  (forward-line -1)
+		  (setq endreached (= (current-indentation) 0))
+		  (setq prevline (substring-no-properties (thing-at-point 'line)))
+		  (if (> currstop (length prevline))
+			  (setq prevcurs prevline)
+			(setq prevcurs (substring prevline 0 currstop))
+			)
+		  (setq backlist (cons (haskell-neverb-indent-line-del currline prevline prevline) backlist))
+		  )
+	  )
 	)
 
-  (haskell-neverb-indent-line-del uptocurs prevcurs)
+;  (print backlist) ;; debug
+;  (print currstop) ;; debug
+  (setq left-margin (apply 'max (apply '(lambda (&rest xs) (filter '(lambda (x) (< x currstop)) xs)) backlist)))
   (indent-to-left-margin)
   )
+
+
 
 (defun turn-on-haskell-neverb-indent ()
   (set (make-local-variable 'indent-line-function) 'haskell-neverb-indent)
   (run-hooks 'haskell-neverb-indent-hook))
 
 (provide 'haskell-neverb-indent)
+
+
+
+
+
+
+
