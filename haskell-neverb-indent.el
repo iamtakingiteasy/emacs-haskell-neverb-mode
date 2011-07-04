@@ -11,174 +11,122 @@
 ;;   (local-set-key (kbd "DEL") 'haskell-neverb-indent-del)
 ;;   (setq haskell-neverb-tab-indent-on t))) 
 
+(require 'cl)
 
-
-;; globals
 (defvar haskell-neverb-indent-shiftwidth 2)
-(defvar haskell-neverb-tab-indent-on nil)
-(defvar haskell-neverb-indent-brace-level 0)
-(defvar haskell-neverb-indent-brace-level-group 0)
-(defvar haskell-neverb-indent-open-brace-pos ())
+(defvar haskell-neverb-indent-absolute 0)
+
+(defstruct neverb-indentation-level name level)
+(defvar haskell-neverb-indentation-levels
+  (list 
+   (make-neverb-indentation-level :level "0"  :name "base")
+
+   (make-neverb-indentation-level :level "+"  :name "function-open")
+   (make-neverb-indentation-level :level "="  :name "function-inside")
+   (make-neverb-indentation-level :level "-"  :name "function-close")
+
+   (make-neverb-indentation-level :level "+"  :name "tuple-open")
+   (make-neverb-indentation-level :level "="  :name "tuple-inside")
+   (make-neverb-indentation-level :level "-"  :name "tuple-close")
+
+   (make-neverb-indentation-level :level "+"  :name "list-open")
+   (make-neverb-indentation-level :level "="  :name "list-inside")
+   (make-neverb-indentation-level :level "-"  :name "list-close")
+
+   (make-neverb-indentation-level :level "+"  :name "block-open")
+   (make-neverb-indentation-level :level "="  :name "block-inside")
+   (make-neverb-indentation-level :level "-"  :name "block-close")
+
+   (make-neverb-indentation-level :level "+"  :name "where-open")
+   (make-neverb-indentation-level :level "="  :name "where-inside")
+   (make-neverb-indentation-level :level "-"  :name "where-close")
+   ))
+
+(defun neverb-lookup-update-mapperf (name value el)
+  (if (string= name (neverb-indentation-level-name el))
+	  (make-neverb-indentation-level :level value :name name) el))
+
+(defun neverb-lookup-update-mapper (name value)
+  (setq haskell-neverb-indentation-levels 
+		(mapcar '(lambda (x) 
+				   (neverb-lookup-update-mapperf name value x)) 
+				haskell-neverb-indentation-levels)))
+
+(defun neverb-lookup-indent (key)
+  (neverb-indentation-level-level 
+   (find key
+		 haskell-neverb-indentation-levels 
+		 :key 'neverb-indentation-level-name 
+		 :test 'string=)))
 
 
-;; regexps
-(defvar haskell-neverb-indent-rexp-empty-space "[[:space:]]*\\(--.*\\|\\)")
-(defvar haskell-neverb-indent-rexp-partials "\\([!#$%&*+,./< =>?@\\^|~-]\+\\|\<*do\\)")
-(defvar haskell-neverb-indent-rexp-openbraces "[{([]")
-(defvar haskell-neverb-indent-rexp-closebraces "[])}]")
+(defun haskell-neverb-indent-translate-parse (str)
+  (setq result 0)
+  (case (string-to-char (substring str 0 1))
+	(?+ (setq result (+ haskell-neverb-indent-absolute (string-to-number str))))
+	(?- (setq result (+ haskell-neverb-indent-absolute (string-to-number str))))
+	(t (setq result (string-to-number str)))) result)
+(defun haskell-neverb-indent-translate (mode)
+  (setq result 0)
+  (if (string= mode "=") 
+	  (setq result haskell-neverb-indent-absolute))
+  (if (string= mode "") 
+	  (setq result haskell-neverb-indent-absolute))
+  (if (string= mode "+") 
+	  (setq result (+ result (* haskell-neverb-indent-shiftwidth 1))))
+  (if (string= mode "++") 
+	  (setq result (+ result (* haskell-neverb-indent-shiftwidth 2))))
+  (if (string= mode "-") 
+	  (setq result (- result (* haskell-neverb-indent-shiftwidth 1))))
+  (if (string= mode "--") 
+	  (setq result (- result (* haskell-neverb-indent-shiftwidth 2))))
+  (if (= result 0)
+	(setq result (haskell-neverb-indent-translate-parse mode)))
+  result)
 
-
-
-
-(defun haskell-neverb-indent-message ()
-	(message "Using haskell-neverb-indent"))
-
-
-(defun haskell-neverb-filter (f &rest xs)
-  (setq result ())
-  (setq xs (car xs))
-  (setq c (car xs))  
-  (while c 
-	(if (funcall f c) 
-		(setq result (cons c result)))
-	(setq xs (cdr xs))
-	(setq c (car xs))) 
-  (reverse result))
-
-(defun haskell-neverb-apply-regexp (regex str)
-  (set-match-data nil)
-  (string-match regex str)
-  )
-
-(defun haskell-neverb-indent-line-get-much (sourceline)
-  (apply-regexp "^[[:space:]]*" sourceline)
-  (match-end 0)
+(defun neverb-lookup-translate (key)
+  (haskell-neverb-indent-translate (neverb-lookup-indent key))
 )
 
-(defun haskell-neverb-indent-is-empty-string ()
-  (let ((thing (thing-at-point 'line)))
-	(haskell-neverb-apply-regexp 
-	 (concat "^" haskell-neverb-indent-rexp-empty-space "$") thing)
-	(if (match-end 0)
-		(setq rhs (match-end 0))
-	  (setq rhs 0))
-	(= rhs (- (length thing) 1))))
+(defun neverb-apply-regexp (rexp str)
+  (set-match-data nil) 
+  (string-match rexp str))
 
+(defun neverb-check-if-space (ch)
+  (or (= ?\s (char-syntax ch)) (= ch ?\n)))
+(defun neverb-check-if-space-string (str)
+  (every 'neverb-check-if-space str))
+(defun haskell-neverb-commented-out (str)
+  (neverb-apply-regexp "^[[:space:]]*--.*$" str))
+
+(defun haskell-neverb-root-node ()
+  (setq thing (thing-at-point 'line))
+  (and
+   (= (current-indentation) (neverb-lookup-translate "base"))
+   (not (neverb-check-if-space-string thing))
+   (not (haskell-neverb-commented-out thing))))
 
 (defun haskell-neverb-indent-scroll-to-root ()
-  (setq numlinesback 0)
-  (setq linemoved 0)
-  (while (and (= linemoved 0) (or (> (current-indentation) 0) (haskell-neverb-indent-is-empty-string)))
-	(setq linemoved (forward-line -1))
-	(setq numlinesback (+ numlinesback 1))) numlinesback)
+  (setq l 0)
+  (loop while (and (= l 0) (not (haskell-neverb-root-node))) do
+		(setq l (forward-line -1))))
 
-(defun haskell-neverb-indent-check-partials ()
-  (setq lm 0)
-  (haskell-neverb-apply-regexp 
-   (concat haskell-neverb-indent-rexp-partials 
-		   haskell-neverb-indent-rexp-empty-space "$")
-							   (thing-at-point 'line))
-;  (if (match-beginning 0)
-;	  (setq lm (+ lm haskell-neverb-indent-shiftwidth))) 
-;  (- lm 2))
-  lm
-)
-
-
-(defun haskell-neverb-substr-count  (ch str)
-  (setq result 0)
-  (setq sublen (length ch))
-  (setq len (length str))
-  (while (> len 0)
-	(let ((och (substring str (- len sublen) len)))
-	  (if (string= och ch)
-		  (setq result (+ result 1))))
-	(setq len (- len 1)))  result)
-;  (while (match-beginning cnt)
-;	(if (match-beginning cnt)
-;		(setq cnt (+ cnt 1)))) cnt)
-
-(defun haskell-neverb-indent-parse-braces (cline o c)
-  (setq cbo (haskell-neverb-substr-count o cline))
-  (setq cbc (haskell-neverb-substr-count c cline))
-  (if (> cbo cbc)
-	  ()
-	  )
-  (setq currlevel 0)
-  (setq currlevel (+ currlevel cbo))
-  (setq currlevel (- currlevel cbc))
-  (print currlevel)
-  (setq haskell-neverb-indent-brace-level
-		(+ haskell-neverb-indent-brace-level currlevel))
-;  (print haskell-neverb-indent-brace-level)
-  )
-
-
-(defun haskell-neverb-indent-parse-line ()
-;  (interactive)
-  (setq lm 0)
-  (setq cline (thing-at-point 'line))
-;  (print haskell-neverb-indent-brace-level)
-  
-  (haskell-neverb-indent-parse-braces cline "{" "}")
-  (haskell-neverb-indent-parse-braces cline "(" ")")
-  (haskell-neverb-indent-parse-braces cline "[" "]")
-
-;  (setq lm (+ lm (haskell-neverb-indent-parse-braces cline "[" "]")))
-;  (setq lm (+ lm (haskell-neverb-indent-parse-braces cline "(" ")")))
-  lm
-)
-
-(defun haskell-neverb-indent-parent-level (lm)
-  (let ((currind (current-indentation)))
-;	(if (> currind 0)
-;		(- (current-indentation) lm)
-;	  0
-;	  )
-	)
-  0
-  )
 
 (defun haskell-neverb-indent ()
   (interactive)
-  (setq haskell-neverb-indent-brace-level 0)
-  (setq haskell-neverb-indent-brace-level-group 0)
-  (setq mdata (save-match-data)) 
-  (set-match-data nil)     
-;  (setq lm haskell-neverb-indent-shiftwidth)
-  (setq lm 0)
+;  (neverb-lookup-update-mapper "base" "99")
+;  (print (neverb-lookup-translate "base"))
   (save-excursion
-	(setq numlinesback (haskell-neverb-indent-scroll-to-root))
-	(setq lm (+ lm (haskell-neverb-indent-check-partials)))
-	(setq i numlinesback)
-	(while (>= i 0)
-	  (setq i (- i 1))
-	  (setq lm (+ lm (haskell-neverb-indent-parse-line)))
-	  (if (= i 0) (setq lm (+ lm (haskell-neverb-indent-parent-level lm))))
-	  (forward-line 1)))
+	(haskell-neverb-indent-scroll-to-root)
+;	(message (thing-at-point 'line))
+	))
 
-  (set-match-data mdata)
-;  (print lm)
-;  (print haskell-neverb-indent-brace-level)
-  (setq lm (+ lm (* haskell-neverb-indent-shiftwidth haskell-neverb-indent-brace-level)))
-;  (print lm)
-  (if (> numlinesback 0)
-	  (progn
-		(setq left-margin lm)
-		(indent-to-left-margin))))
-
-
-
-(defun haskell-neverb-indent-parens ()
-  (interactive) 
-  (self-insert-command 1) 
-  (haskell-neverb-indent))
 
 (defun turn-on-haskell-neverb-indent ()
   (set (make-local-variable 'indent-line-function) 'haskell-neverb-indent)
-  (local-set-key (kbd "]") 'haskell-neverb-indent-parens)
-  (local-set-key (kbd "}") 'haskell-neverb-indent-parens)
-  (local-set-key (kbd ")") 'haskell-neverb-indent-parens)
+;  (local-set-key (kbd "]") 'haskell-neverb-indent-parens)
+;  (local-set-key (kbd "}") 'haskell-neverb-indent-parens)
+;  (local-set-key (kbd ")") 'haskell-neverb-indent-parens)
   (local-set-key (kbd "<f2>") 'haskell-neverb-indent)
   (run-hooks 'haskell-neverb-indent-hook))
 
