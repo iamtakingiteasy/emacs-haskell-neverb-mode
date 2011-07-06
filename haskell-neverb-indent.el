@@ -17,6 +17,18 @@
 (defvar haskell-neverb-indent-absolute 0)
 
 (defstruct neverb-indentation-level name level)
+
+(defstruct string-literal-pos)
+(defstruct pinknoise-pos)
+(defstruct function-pos (childs ()))
+(defstruct tuple-pos (childs ()))
+(defstruct list-pos (childs ()))
+(defstruct block-pos (childs ()))
+
+
+
+
+
 (defvar haskell-neverb-indentation-levels
   (list 
    (make-neverb-indentation-level :level "0"  :name "base")
@@ -109,15 +121,97 @@
 (defun haskell-neverb-indent-scroll-to-root ()
   (setq l 0)
   (loop while (and (= l 0) (not (haskell-neverb-root-node))) do
-		(setq l (forward-line -1))))
+		(setq l (forward-line -1)))
+  (beginning-of-line))
 
+(defun neverb-get-next-char ()
+  (setq ch (following-char))
+  (forward-char)
+  ch
+)
+(defun neverb-get-next-word ()
+  (setq ch (following-char))
+  (setq word nil)
+  (while (not (neverb-check-if-s)
+	(setq word (cons ch word))
+	(forward-char)
+	(setq ch (following-char)))
+  (concat (reverse word)))
+)
+
+(defun neverb-skip-quote (ch)
+  (forward-char)
+  (skip-chars-forward (concat "^" (char-to-string ch)))
+  (if (char-equal (preceding-char) ?\\)
+	  (neverb-skip-quote ch)
+	  )
+  (forward-char)
+;  (print (char-to-string (preceding-char)))
+)
+
+(defun haskell-neverb-initial-parser (cursorpoint)
+  (interactive)
+ ;
+  (setq result nil)
+  (setq word nil)
+  (setq isquote nil)
+  (setq isspace nil)
+  
+  (loop while (<= (point) cursorpoint) do
+		(setq ch (neverb-get-next-char))
+		(if (char-equal ?\" ch)
+			(progn
+			  (neverb-skip-quote ?\")
+			  (setq isquote t)
+			  )
+		  (setq isquote nil)
+			)
+		(if (neverb-check-if-space ch)
+			(progn
+			  (skip-chars-forward "[:space:]")
+			  (setq isspace t)
+			  )
+		  (setq isspace nil)
+		  )
+		(if (and (not isspace) (not isquote))
+			(setq word (cons ch word))
+		  (progn
+			(if word 
+				(progn
+				  (setq word (concat (reverse word)))
+				  (print word)
+				  )
+			  )
+			(setq word nil)
+		   )
+		  )
+		)
+
+
+;  (loop while (<= (point) cursorpoint) do
+;		(setq ch (neverb-get-next-char))
+;		(case (char-syntax ch
+;)		  (?\s (skip-chars-forward "[:space:]") (print (concat (reverse word))) (setq word nil))
+;		  (t (setq word (cons ch word)))
+;		  )
+;		
+;		)
+  
+;  result
+  )
 
 (defun haskell-neverb-indent ()
   (interactive)
 ;  (neverb-lookup-update-mapper "base" "99")
 ;  (print (neverb-lookup-translate "base"))
-  (save-excursion
-	(haskell-neverb-indent-scroll-to-root)
+;  (print (point))
+  (setq cursorpoint (point))
+
+    (save-excursion
+	  (haskell-neverb-indent-scroll-to-root)
+	  (haskell-neverb-initial-parser cursorpoint)
+;	  (haskell-neverb-parser (substring-no-properties (buffer-substring cursorpoint (point))))
+;	  (haskell-neverb-parser)
 ;	(message (thing-at-point 'line))
 	))
 
@@ -127,7 +221,7 @@
 ;  (local-set-key (kbd "]") 'haskell-neverb-indent-parens)
 ;  (local-set-key (kbd "}") 'haskell-neverb-indent-parens)
 ;  (local-set-key (kbd ")") 'haskell-neverb-indent-parens)
-  (local-set-key (kbd "<f2>") 'haskell-neverb-indent)
+;  (local-set-key (kbd "<f2>") 'haskell-neverb-parser)
   (run-hooks 'haskell-neverb-indent-hook))
 
 (provide 'haskell-neverb-indent)
