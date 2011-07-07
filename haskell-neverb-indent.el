@@ -17,15 +17,25 @@
 (defvar haskell-neverb-indent-absolute 0)
 
 (defstruct neverb-indentation-level name level)
+(defstruct neverb-node (childs nil) (parent nil))
+;(defstruct (neverb-haskell-root-node (:include neverb-node)))
+;(defstruct (neverb-haskell-function-node (:include neverb-node)))
+(make-symbol "root-node")
+(make-symbol "function-node")
 
-(defstruct string-literal-pos)
-(defstruct pinknoise-pos)
-(defstruct function-pos (childs ()))
-(defstruct tuple-pos (childs ()))
-(defstruct list-pos (childs ()))
-(defstruct block-pos (childs ()))
+(make-symbol "data-node")
+(make-symbol "data-name-node")
+(make-symbol "data-pipe-node")
+(make-symbol "data-deriving-node")
 
 
+(make-symbol "class-node")
+
+(make-symbol "tuple-node")
+(make-symbol "list-node")
+(make-symbol "block-node")
+
+(make-symbol "where-node")
 
 
 
@@ -70,6 +80,9 @@
 		 haskell-neverb-indentation-levels 
 		 :key 'neverb-indentation-level-name 
 		 :test 'string=)))
+
+(defun neverb-lookup-string (iitem iseq)
+  (find iitem iseq :test 'string=))
 
 
 (defun haskell-neverb-indent-translate-parse (str)
@@ -130,90 +143,139 @@
   ch
 )
 (defun neverb-get-next-word ()
-  (setq ch (following-char))
-  (setq word nil)
-  (while (not (neverb-check-if-s)
-	(setq word (cons ch word))
-	(forward-char)
-	(setq ch (following-char)))
-  (concat (reverse word)))
-)
+  (skip-chars-forward "^_a-z0-9A-Z'")
+  (setq curpoint (point))
+  (setq diff (skip-chars-forward "_a-z0-9A-Z'"))
+  (setq word (buffer-substring curpoint (+ curpoint diff)))
+  (if (string= "" word) nil word))
+
 
 (defun neverb-skip-quote (ch)
-  (forward-char)
-  (skip-chars-forward (concat "^" (char-to-string ch)))
-  (if (char-equal (preceding-char) ?\\)
-	  (neverb-skip-quote ch)
-	  )
-  (forward-char)
-;  (print (char-to-string (preceding-char)))
-)
-
-(defun haskell-neverb-initial-parser (cursorpoint)
-  (interactive)
- ;
-  (setq result nil)
-  (setq word nil)
-  (setq isquote nil)
-  (setq isspace nil)
-  
-  (loop while (<= (point) cursorpoint) do
-		(setq ch (neverb-get-next-char))
-		(if (char-equal ?\" ch)
-			(progn
-			  (neverb-skip-quote ?\")
-			  (setq isquote t)
-			  )
-		  (setq isquote nil)
-			)
-		(if (neverb-check-if-space ch)
-			(progn
-			  (skip-chars-forward "[:space:]")
-			  (setq isspace t)
-			  )
-		  (setq isspace nil)
-		  )
-		(if (and (not isspace) (not isquote))
-			(setq word (cons ch word))
-		  (progn
-			(if word 
-				(progn
-				  (setq word (concat (reverse word)))
-				  (print word)
-				  )
-			  )
-			(setq word nil)
-		   )
+  (if (or (not (char-equal ch (following-char))) (char-equal (preceding-char) ?\\))
+	  (progn
+		(forward-char)
+		(skip-chars-forward (concat "^" (char-to-string ch)))
+		(if (char-equal (preceding-char) ?\\)
+			(neverb-skip-quote ch)
 		  )
 		)
-
-
-;  (loop while (<= (point) cursorpoint) do
-;		(setq ch (neverb-get-next-char))
-;		(case (char-syntax ch
-;)		  (?\s (skip-chars-forward "[:space:]") (print (concat (reverse word))) (setq word nil))
-;		  (t (setq word (cons ch word)))
-;		  )
-;		
-;		)
-  
-;  result
+	  )
+  (if (char-equal (following-char) ch)
+	  (forward-char)
   )
+)
+
+
+(defun haskell-neverb-strip-literals (cursorpoint)
+  (setq result (generate-new-buffer "Haskell parsing buffer"))
+
+  (setq isquote nil)
+  (loop while (<= (point) cursorpoint) do
+		(setq ch (neverb-get-next-char))
+		(if (or (char-equal ?\" ch) (char-equal ?\' ch))
+			(progn
+			  (neverb-skip-quote ch)
+			  (setq isquote t))
+		  (setq isquote nil))
+
+		(if  (not isquote) (with-current-buffer result (insert-char ch 1))))
+  (with-current-buffer result (goto-char 0))
+  result
+  )
+
+(defun haskell-neverb-indent-scroll-to-indent (ind)
+  (lexical-let ((result 0))
+	(while 
+		(and 
+		 (= (forward-line 1) 0) 
+		 (or 
+		  (> (current-indentation) ind) 
+		  (haskell-neverb-commented-out (thing-at-point 'line)))))
+	(setq result (point))
+	result
+	))
+
+(defun haskell-neverb-data-parse-pipe ()
+  (push word tmpresult)
+)
+
+(defun haskell-neverb-data-parse (bbegin bend)
+  (lexical-let ((result nil))
+	(push 'data-node result)
+	(goto-char bbegin)
+	(forward-word 2)
+ 	(push (cons (thing-at-point 'word) (cons 'data-name-node nil)) result)
+	(skip-chars-forward "[:space:]")
+	(print (following-char))
+;	(print (thing-at-point 'word))
+;	(print (thing-at-point 'word))
+	
+;	(setq tmpresult nil)
+;	(setq drvresult nil)
+;	(setq rcrresult nil)
+;	(setq imode 0)
+;
+;	(push 'data-pipe-node tmpresult)
+;
+;	(while (< (point) bend)
+;	  (let ((word (neverb-get-next-word)))
+;		(if word
+;			(case imode
+;			  (0 (haskell-neverb-data-parse-pipe))
+;			  (1 (haskell-neverb-data-parse-derv))
+;			  (2 (haskell-neverb-data-parse-rcrd))
+;			  )
+;		  )
+;		)
+;	  )
+;	(push tmpresult result)
+;	(push drvresult result)
+	result
+  ))
+
+(defun neverb-reverse-all (list)
+  (if (listp list)
+	  (progn
+		(setq res (reverse list))
+		(setq res (mapcar 'neverb-reverse-all res)))
+	(setq res list)) res)
+
+(defun haskell-neverb-extent-parse ()
+  (setq result nil)
+  (while (not (eobp))
+	(beginning-of-line)
+	(setq blockstart (point))
+	(skip-chars-forward "[:space:]")
+	(setq cword (thing-at-point 'word))
+	(setq blockend (haskell-neverb-indent-scroll-to-indent (current-indentation)))
+	
+	(save-excursion
+	  (if (string= "data" cword) 
+		  (push (haskell-neverb-data-parse blockstart blockend) result)))
+	)
+  (setq result (mapcar 'neverb-reverse-all result))
+  (print result)
+  result
+)
+
+
+(defun haskell-neverb-initial-parser (cursorpoint)
+  (setq parsebuffer (haskell-neverb-strip-literals cursorpoint))
+  (setq result (with-current-buffer parsebuffer (haskell-neverb-extent-parse)))
+  (kill-buffer parsebuffer)
+  result
+)
+
 
 (defun haskell-neverb-indent ()
   (interactive)
-;  (neverb-lookup-update-mapper "base" "99")
-;  (print (neverb-lookup-translate "base"))
-;  (print (point))
-  (setq cursorpoint (point))
-
-    (save-excursion
-	  (haskell-neverb-indent-scroll-to-root)
-	  (haskell-neverb-initial-parser cursorpoint)
-;	  (haskell-neverb-parser (substring-no-properties (buffer-substring cursorpoint (point))))
-;	  (haskell-neverb-parser)
-;	(message (thing-at-point 'line))
-	))
+  (save-excursion
+	(end-of-line)
+	(setq cursorpoint (point))
+	(haskell-neverb-indent-scroll-to-root)
+	(haskell-neverb-initial-parser cursorpoint)
+	)
+  )
 
 
 (defun turn-on-haskell-neverb-indent ()
