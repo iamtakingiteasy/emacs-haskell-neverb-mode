@@ -6,18 +6,41 @@
 ;; Add folowing to your .emacs file:
 ;;
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; DATA
+
 (require 'cl)
+
+(make-symbol "node")
+
+(make-symbol "node-data")
+(make-symbol "node-data-name")
+(make-symbol "node-data-eq-sign")
+(make-symbol "node-data-variant")
+
+(make-symbol "node-group-block")
+(make-symbol "node-group-block-entry")
+(make-symbol "node-group-tuple")
+(make-symbol "node-group-tuple-entry")
+(make-symbol "node-group-list")
+(make-symbol "node-group-list-entry")
+
+(defstruct haskell-node 
+  (name 'node) 
+  (line 0) 
+  (indent 0) 
+  (special nil) 
+  (childs nil))
 
 (defvar neverb-indent-levels (make-hash-table :test 'equal))
 (clrhash neverb-indent-levels)
-(setf (gethash "absolute"     neverb-indent-levels) "0")
-(setf (gethash "desired"      neverb-indent-levels) "0")
-(setf (gethash "base"         neverb-indent-levels) "0")
-(setf (gethash "shiftwidth"   neverb-indent-levels) "2")
+(setf (gethash "absolute"     neverb-indent-levels) 0)
+(setf (gethash "desired"      neverb-indent-levels) 0)
+(setf (gethash "base"         neverb-indent-levels) 0)
+(setf (gethash "shiftwidth"   neverb-indent-levels) 2)
 
 (setf (gethash "data-open"    neverb-indent-levels) "+")
-(setf (gethash "data-name"    neverb-indent-levels) "=")
-(setf (gethash "data-eq"      neverb-indent-levels) "+")
+(setf (gethash "data-name"    neverb-indent-levels) "+")
+(setf (gethash "data-eq-sign" neverb-indent-levels) "+")
 (setf (gethash "data-variant" neverb-indent-levels) "&=")
 
 (setf (gethash "tuple-open"   neverb-indent-levels) "+")
@@ -45,488 +68,419 @@
 (setf (gethash "--" neverb-indent-symbols) -2)
 
 
-(defun neverb-lookup-relative-indent (key)
-  (setq sym (gethash key neverb-indent-levels))
-  (setq num (gethash sym neverb-indent-symbols))
-  (setq shiftwidth (string-to-number (gethash "shiftwidth" neverb-indent-levels)))
-  (if num
-	  (setq result (* shiftwidth num))
-	(let ((ch (string-to-char (substring sym 0 1))))
-	  (case ch
-		((?+ ?-) (setq result (string-to-number sym)))
-		(t (setq result nil)))))
-  result
-)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; GENERICS
 
 (defun neverb-lookup-indent (key)
-  (setq result (string-to-number (gethash "absolute" neverb-indent-levels)))
-  (setq shiftwidth (string-to-number (gethash "shiftwidth" neverb-indent-levels)))
-  (setq sym (gethash key neverb-indent-levels))
-  (setq num (gethash sym neverb-indent-symbols))
-  (if num
-	  (setq result (+ result (* shiftwidth num)))
-	(let ((ch (string-to-char (substring sym 0 1))))
-	  (case ch
-		((?+ ?-) (setq result (+ result (string-to-number sym))))
-		(?& (setq result nil))
-		(t (setq result (string-to-number sym)))))) result)
+  (lexical-let ((sym nil)
+				(num nil)
+				(shiftwidth nil)
+				(result nil))
+
+	(setq shiftwidth (gethash "shiftwidth" neverb-indent-levels))
+	(setq sym (gethash key neverb-indent-levels))
+	(setq num (gethash sym neverb-indent-symbols))
+	(if num
+		(setq result (* shiftwidth num))
+	  (case (string-to-char (substring sym 0 1))
+		((?+ ?\-) (setq result (string-to-number sym))))) result))
+
+(defun neverb-set-indent (key value) (setf (gethash key neverb-indent-levels) value))
+
+(defun neverb-get-indent (key) (gethash key neverb-indent-levels))
+
+(defun neverb-mod-indent (key value) (incf (gethash key neverb-indent-levels) value))
 
 (defun neverb-is-empty-line ()
   (save-excursion
 	(beginning-of-line)
-	(skip-chars-forward "[:space:]")
-	(if (or (>= (skip-chars-forward "-") 2) (eolp)) t nil)))
+	(looking-at "^[[:space:]]*\\(\\|--.*\\)$")))
 
 (defun neverb-is-comment-start ()
   (save-excursion
-	(setq found nil)
-	(let ((data (match-data)))
-	  (set-match-data'nil)
-	  (string-match "^[[:space:]]*{-" (thing-at-point 'line))
-	  (if (match-beginning 0) (setq found t))
-	  (set-match-data data)) found))
+	(beginning-of-line)
+	(looking-at ".*{-.*")))
+
+(defun neverb-is-indent-commented ()
+  (save-excursion
+	(beginning-of-line)
+	(looking-at "[[:space:]]*{-.*")))
+
 
 (defun neverb-is-comment-end ()
   (save-excursion
-	(setq found nil)
-	(let ((data (match-data)))
-	  (set-match-data'nil)
-	  (string-match "-}" (thing-at-point 'line))
-	  (if (match-beginning 0) (setq found t))
-	  (set-match-data data)) found))
+	(beginning-of-line)
+	(looking-at ".*-}.*")))
 
 (defun neverb-get-absolute-indent ()
   (save-excursion
-	(goto-char 0)
-	(setq insidecomment nil)
-	(setq skip (if (or (neverb-is-empty-line) (neverb-is-comment-start)) t nil))
-	(while (and skip (not (eobp)))
-	  (if (neverb-is-comment-start) (setq insidecomment t))
-	  (if (neverb-is-comment-end) (progn (setq insidecomment nil) (forward-line 1)))
-	  (setq skip (or insidecomment (neverb-is-empty-line)))
-	  (if skip (forward-line 1)))
-	(current-indentation)))
-
-
-
-(defun neverb-lookup-string (iitem iseq)
-  (find iitem iseq :test 'equal))
-
-(defun neverb-is-root-node ()
-  (let ((thing (thing-at-point 'line)))
-	(and 
-	 (= (current-indentation) (neverb-lookup-indent "base"))
-	 (not (neverb-is-empty-line)))))
-
-(defun neverb-scroll-to-root-node ()
-  (setq insidecomment nil)
-  (setq skip (if 
-				 (or 
-				  (neverb-is-empty-line) 
-				  (neverb-is-comment-end)
-				  (not (neverb-is-root-node))
-				  ) t nil))
-  (while (and skip (not (bobp)))
-	  (if (neverb-is-comment-end) (setq insidecomment t))
-	  (if (neverb-is-comment-start) (progn (setq insidecomment nil) (forward-line -1)))
-	  (setq skip (or insidecomment (not (neverb-is-root-node)) (neverb-is-empty-line)))
-	  (if skip (forward-line -1))))
-
-(defun neverb-safe-read-from-buffer (peek)
-  (if (> (+ (point) peek) (buffer-size)) (setq peek (- (buffer-size) (point) -1)))
-  (buffer-substring-no-properties (point) (+ (point) peek)))
-
-
-(defun neverb-skip-quote (ch ep)
-  (setq ntch (neverb-safe-read-from-buffer 2))  
-  (if (not (string= ntch "\"\""))
-	  (progn
-		(forward-char 1)
-		(while (and 
-				(<= (point) ep) 
-				(not (eobp))
-				(not (char-equal ch (following-char))))
-		  (if (string= (neverb-safe-read-from-buffer 2) "\\\"")
-			  (forward-char 1))
-		  (forward-char 1)))
-	(forward-char 1)))
-
-(defun neverb-skip-comment (ep)
-  (setq ntch (neverb-safe-read-from-buffer 2))
-  (while (and (<= (point) ep) (not (string= ntch "-}")))
-	(setq ntch (neverb-safe-read-from-buffer 2))
-	(forward-char 1)))
-
-(defun neverb-preparse (buf bp ep)
-  (with-current-buffer buf (goto-char 0))
-  (save-excursion
-	(goto-char bp)
-	(setq skip nil)
-	(while (and (<= (point) ep) (not (eobp)))
-	  (setq nch (following-char))
-
-	  (setq ntch (neverb-safe-read-from-buffer 2))
-
-	  (if (or (char-equal nch ?\") (char-equal nch ?\'))
-		  (progn
-			(setq skip t)
-			(neverb-skip-quote nch ep)))
-
-	  (if (string= "--" ntch)
-		  (progn
-			(setq skip t)
-			(end-of-line)))
-
-	  (if (string= "{-" ntch)
-		  (progn
-			(setq skip t)
-			(neverb-skip-comment ep)))
-	  (if (neverb-is-empty-line)
-		  (setq skip t)
-		  )
-		  
-	  (if skip (setq skip nil) (with-current-buffer buf (insert nch)))
-	  (forward-char 1)))
-  (with-current-buffer buf (goto-char 0)))
-
-(defun neverb-take-while (rexp &optional skip)
-  (if skip
-	  (skip-chars-forward (concat "^" rexp))
-  )
-  (setq p (point))
-  (setq pdiff (skip-chars-forward rexp))
-  (setq word (buffer-substring p (+ p pdiff)))
-  (if (string= "" word) nil word))
-
-(defun neverb-get-next-haskell-word (&optional skip)
-  (skip-chars-forward "[:space:]")
-  (neverb-take-while "_a-z0-9A-Z'" skip))
-
+	(lexical-let ((skip nil))
+	  (goto-char 0)
+	  (setq skip (and (neverb-is-comment-start) (neverb-is-indent-commented)))
+	  (while (and (or skip (neverb-is-empty-line)) (not (eobp)))
+		(forward-line 1)
+		(if (and (neverb-is-comment-start) (neverb-is-indent-commented))
+			(setq skip t))
+		(if (neverb-is-comment-end)
+			(progn
+			  (forward-line 1)
+			  (setq skip nil))))
+	  (current-indentation))))
 
 (defun neverb-reverse-all (l)
-  (if (listp l) (mapcar 'neverb-reverse-all (reverse l)) l))
+  (lexical-let ((result nil))
+	(if (listp l) (setq result (mapcar 'neverb-reverse-all (reverse l)) l))
+	(if (haskell-node-p l) 
+		(progn
+		  (setf (haskell-node-childs l) (reverse (haskell-node-childs l)))
+		  (setq result l)))
+	result))
 
-(defun neverb-add-absolute-indent (value)
-  (setf 
-   (gethash "absolute" neverb-indent-levels) 
-   (number-to-string 
-	(+ (string-to-number (gethash "absolute" neverb-indent-levels)) value))))
-
-(defun neverb-set-absolute-indent (value)
-  (setf (gethash "absolute" neverb-indent-levels) (number-to-string value)))
-
-(defun neverb-mod-absolute-indent (key)
-  (setq ivalue (neverb-lookup-indent key))
-  (if ivalue (neverb-set-absolute-indent (neverb-lookup-indent key)) nil))
 
 (defun neverb-end-is-near ()
+  (save-excursion
+	(skip-chars-forward "[:space:]")
+	(eobp)))
+
+(defun neverb-scroll-to-root-node ()
+  (lexical-let ((skip nil)
+				(take t))
+	(setq skip (neverb-is-comment-end))
+	(while 
+		(and (not (bobp)) 
+			 (or 
+			  skip 
+			  (neverb-is-empty-line)
+;			  (/= (current-indentation) (neverb-get-indent "base"))))
+			  take))
+	  (forward-line -1)
+	  (if (neverb-is-comment-end) (setq skip t))
+	  (if (neverb-is-comment-start)
+		  (progn
+			(setq skip nil)
+			(if (neverb-is-indent-commented)
+				(forward-line -1))))
+
+	  (if (and (not take) (/= (current-indentation) (neverb-get-indent "base")))
+		  (setq skip nil))
+	  (if (= (current-indentation) (neverb-get-indent "base"))
+		  (progn 
+			(setq take nil)
+			(if (string= "data" (neverb-get-next-haskell-word)) (setq skip nil))
+			))
+	  )))
+
+(defun neverb-maybe-buffer-substring (len)
+  (if (> (+ (point) len) (buffer-size)) (setq len (- (buffer-size) (point) -1)))
+  (buffer-substring-no-properties (point) (+ (point) len)))
+
+(defun neverb-take-while (set &optional skip)
+  (lexical-let ((p nil) (pdiff nil) (word ""))
+	(if skip (skip-chars-forward (concat "^" set)))
+	(setq p (point))
+	(setq pdiff (skip-chars-forward set))
+	(setq word (buffer-substring p (+ p pdiff)))
+	(if (string= "" word) nil word)))
+
+(defun neverb-get-next-haskell-word ()
   (skip-chars-forward "[:space:]")
-  (eobp))
-
-;; (defmacro neverb-maybe-indent (key &optional a)
-;;   (if (and cont-ok (neverb-end-is-near))
-;; 	  (progn
-;; 		(setq cont-ok nil)
-;; 		(if a
-;; 			(neverb-set-absolute-indent (eval a))
-;; 		  (save-excursion
-;; 			(forward-line -2) ; -1 for current; -1 for end-is-near
-;; 			(setq oldmod (current-indentation))
-;; 			(setq diff (neverb-lookup-relative-indent key))
-;; 			(print diff)
-;; 			(neverb-set-absolute-indent (+ oldmod diff)))))
-;; 	(if cont-ok (neverb-set-absolute-indent (current-indentation)))))
-
-;; (defun neverb-parse-haskell-node-block ()
-;;   (setq block-offset (current-column))
-;;   (forward-char 1)
-;;   (setq doforward t)
-;;   (while (and doforward (not (neverb-end-is-near)))
-;; 	(skip-chars-forward "^}{\n")
-;; 	(setq ch (following-char))
-;; 	(forward-char 1)
-;; 	(case ch
-;; 	  (?\n (neverb-set-absolute-indent block-offset))
-;; 	  (?{  (neverb-parse-haskell-node-block))
-;; 	  (?}  (setq doforward nil)))))
-
-;; (defun neverb-parse-haskell-node-data ()
-;;   (setq cont-ok t)
-;;   (neverb-maybe-indent "data-open")
-;;   (neverb-get-next-haskell-word t)
-;;   (neverb-maybe-indent "data-name")
-;;   (skip-chars-forward "^=")
-;;   (setq eq-column nil)
-;;   (if (char-equal (following-char) ?=)
-;; 	  (progn
-;; 		(setq eq-column (current-column))
-;; 		(skip-chars-forward "[:space:]=")
-;; 		(neverb-maybe-indent "data-eq")))
-;;   (while (not (neverb-end-is-near))
-;;   	(if (and eq-column (not (neverb-lookup-indent "data-variant")))
-;;    		(neverb-set-absolute-indent eq-column))
-;;    	(skip-chars-forward "^{|")
-;;    	(if (char-equal ?{ (following-char))
-;;    		  (neverb-parse-haskell-node-block))
-;; 	(skip-chars-forward "^|")
-;; 	(skip-chars-forward "|")))
+  (neverb-take-while "_a-z0-9A-Z'"))
 
 (defun neverb-get-next-word ()
   (skip-chars-forward "[:space:]")
-  (neverb-take-while "^[:space:]")
-)
+  (neverb-take-while "^[:space:]"))
 
+(defun neverb-skip-string-forward (&rest set)
+  (lexical-let ((skip t) (peek nil) (it 0))
+	(while (and (not (eobp)) skip)
+	  (loop for item in set do
+			(setq peek (neverb-maybe-buffer-substring (length item)))
+			(if (string= peek item)	(setq skip nil)))
+	  (if (and (not (eobp)) skip) 
+		  (progn 
+			(incf it)
+			(forward-char 1)))) it))
 
-(make-symbol "node-data")
-(make-symbol "node-data-name")
-(make-symbol "node-data-eq")
-(make-symbol "node-data-variant")
-(make-symbol "node-data-variant-content")
-(make-symbol "node-data-deriving")
+(defmacro neverb-take-drop (seq n)
+  (list 'lexical-let '((accum nil))
+		(list 'case n
+			  (list 0 (list 'setq 'accum nil))
+			  (list 1 (list 'progn
+							(list 'setq 'accum (list 'car seq))
+							(list 'setq seq (list 'cdr seq))))
+			  (list 't (list 'progn 
+							 (list 'setq 'accum (list 'subseq seq 0 n))
+							 (list 'setq seq (list 'nthcdr n seq)))))
+		'accum
+		))
 
-(defun neverb-combine-indent (what indent &optional special lineno)
-  (setq tmp nil)
-  (push what tmp)
-  (push indent tmp)
-  (push lineno tmp)
-  (push special tmp)
-  tmp
-)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; PREPROCESSORS
 
-(defmacro neverb-push-with-indent (what &optional seq special absolute)
-   (if (not (eval absolute)) (setq absolute (current-indentation)))
-   (list 'setq seq 
-		 (list 'cons 
-			   (list 'neverb-combine-indent what absolute special 
-					 (line-number-at-pos)) seq)))
-
-(make-symbol "node-block")
-(make-symbol "node-block-entry")
-(make-symbol "node-tuple")
-(make-symbol "node-tuple-entry")
-(make-symbol "node-list")
-(make-symbol "node-list-entry")
-
-(defun neverb-parse-haskell-node-block (&optional cur recurse)
-  (lexical-let ((cont-ok t)
-				(co ?\{)
-				(cc ?\})
-				(cs ?\,)
-				(cn 'node-block)
-				(ce 'node-block-entry)
-				(block-parse-results nil))
-	(case cur 
-	  (?\{ ()) ; uses defaults in lexical-let
-	  (?\( 
-	   (progn
-		 (setq co ?\()
-		 (setq cc ?\))
-		 (setq cs ?\,)
-		 (setq cn 'node-tuple)
-		 (setq ce 'node-tuple-entry)
-		 )
-	   )
-	  (?\[
-	   (progn
-		 (setq co ?\[)
-		 (setq cc ?\])
-		 (setq cs ?\,)
-		 (setq cn 'node-list)
-		 (setq ce 'node-list-entry)
-		 )
-	   )
-	  )
-	(setq block-parse-results  (neverb-combine-indent cn (current-indentation)))
+(defun neverb-preprocess-skip-quote (ch)
+  "Skips quoted string literals"
+  (lexical-let ((skip nil))
 	(forward-char 1)
-	(skip-chars-forward "[:space:]")
- 	(if (not (char-equal co (following-char)))
- 		(neverb-push-with-indent ce block-parse-results))
-	(while cont-ok
-	  (setq ch (following-char))
-	  (forward-char 1)
-	  (if (and (char-equal ch ?\() (not (char-equal cur ch)))
-		  (progn
-		  (backward-char 1)
-		  (neverb-push-with-indent
-		   ce
-		   block-parse-results
-		   (neverb-parse-haskell-node-block ?\( t))
-		   (forward-char 1)))
-	  (if (and (char-equal ch ?\{) (not (char-equal cur ch)))
-		  (progn
-		  (backward-char 1)
-		  (neverb-push-with-indent
-		   ce
-		   block-parse-results
-		   (neverb-parse-haskell-node-block ?\{ t))
-		   (forward-char 1)))
-
-	  (if (and (char-equal ch ?\[) (not (char-equal cur ch)))
-		  (progn
-		  (backward-char 1)
-		  (neverb-push-with-indent
-		   ce
-		   block-parse-results
-		   (neverb-parse-haskell-node-block ?\[ t))
-		   (forward-char 1)))
-	  (if (char-equal ch cs)
-		  (progn
-			(skip-chars-forward "[:space:]")
-			(neverb-push-with-indent ce block-parse-results)))
-	  (if (char-equal ch co)
-		  (progn
-			(backward-char 1)
-			(neverb-push-with-indent
-			 ce
-			 block-parse-results
-			 (neverb-parse-haskell-node-block cur t))
-			(forward-char 1)))
-	  (if (char-equal ch cc)
-			(setq cont-ok nil))
-	  (if (neverb-end-is-near) 
-			(setq cont-ok nil)))
-	block-parse-results))
+	(setq skip t)
+	(while skip
+	  (skip-chars-forward (concat "^" (char-to-string ch)))
+	  (if (not (char-equal ?\\ (preceding-char)))
+		  (setq skip nil)
+		(skip-chars-forward (char-to-string ch))))))
 
 
+(defun neverb-preprocess-skip-comment ()
+  "Skips {- comments -}"
+  (lexical-let ((skip nil))
+	(setq skip t)
+	(while skip
+	  (skip-chars-forward "^}")
+	  (if (char-equal (preceding-char) ?\-)
+		  (setq skip nil))
+	  (skip-chars-forward "}"))))
 
-(defun neverb-parse-haskell-node-data ()
-  (setq parse-result (neverb-combine-indent 'node-data (current-indentation)))
-  (if (neverb-get-next-haskell-word)
-	  (neverb-push-with-indent 'node-data-name parse-result))
-  (if (neverb-get-next-word)
-	  (neverb-push-with-indent 'node-data-eq-sign parse-result (- (current-column) 1)))
-  (while (not (neverb-end-is-near))
-	(skip-chars-forward "[:space:]")
-	(if (string= "deriving" (neverb-get-next-haskell-word))
-		(progn
-		  (skip-chars-forward "[:space:]")
-		  (setq parse-tmp-cont (neverb-parse-haskell-node-block ?\())
-		  (neverb-push-with-indent 'node-data-deriving parse-result parse-tmp-cont)
-		  )
-	  (progn
-		(setq parse-tmp nil)
-		(setq parse-tmp-cont nil)
-		(setq node-data-variant-content (neverb-take-while "^{|d"))
-		(if (char-equal ?{ (following-char))
-			(progn
-			  (setq parse-tmp-cont (neverb-parse-haskell-node-block ?{))
-			  (skip-chars-forward "^|d")))
-;		(print node-data-variant-content)
-		(neverb-push-with-indent 'node-data-variant parse-result parse-tmp-cont)
-		(skip-chars-forward "|"))))
-;  (print (neverb-reverse-all parse-result))
-  (neverb-reverse-all parse-result))
-
-
-(defun neverb-take (list n) (subseq list 0 n))
-
-(defun neverb-drop (list n) (nthcdr n list))
-
-(defmacro neverb-extract-item (seq &optional line indent name special clear)
-  (list 'progn
-	(if name (list 'setq name (list 'nth 0 seq)) )
-	(if indent (list 'setq indent (list 'nth 1 seq)))
-	(if line (list 'setq line (list 'nth 2 seq)))
-	(if special (list 'setq special (list 'nth 3 seq)))
-	(if clear (list 'setq seq (list 'neverb-drop seq 4)))))
-
-;; (defmacro neverb-extract-item (seq &optional indent name special)
-;;   (if (not seq) nil)
-;;   (list 'progn
-;; 	(list 'setq 's (list 'car seq))
-;; 	(list 'neverb-extract-item-first 's indent name special)
-;; 	(list 'setq seq (list 'cdr seq))
-;;   ))
-
-;(defmacro neverb-setmod-absolute-indent (foo ish key &optional sr sw)
-;  (list 'progn
-;		(list foo ish 'i 'n sr)
-;		(list 'if 'i
-;			(list 'progn
-;			  (list 'neverb-set-absolute-indent 'i)
-;			  (list 'if (and (not (list 'neverb-mod-absolute-indent key)) sw)
-;					(list 'neverb-set-absolute-indent sw))
-;			  (list 'neverb-mod-absolute-indent key)
-;			  ))))
-
-(defun neverb-indentate-block (pparsidh)
-  (print pparsidh)
-)
-
-(defun neverb-indentate-data (parseish)
-  (neverb-extract-item parseish l i n s t)
-;  (print parseish)
-  (neverb-set-absolute-indent i)
-  (neverb-mod-absolute-indent "data-open")
-  (setq cline 1)
-  (setq oi i)
-  (loop for atm in parseish do
-		(neverb-extract-item atm l i n s)
-		(if (/= cline l) 
-			(progn
-			  (setq cline l)
-			  (neverb-set-absolute-indent oi)))
-		(case n
-		  ('node-data-name (neverb-mod-absolute-indent "data-name"))
-		  ('node-data-eq-sign 
-		   (progn
-			 (setq eq-column s)
-			 (neverb-mod-absolute-indent "data-eq")))
-		  ('node-data-variant 
-		   (progn
-			 (if (not (neverb-mod-absolute-indent "data-variant"))
-				 (neverb-set-absolute-indent eq-column)
-				 )
-			 (if s (neverb-indentate-block s))
-			 ))
-		  )
-		(setq oi i)))
-
-(defun neverb-parse (foobegin fooend)
-  (setq parsebuffer (generate-new-buffer "haskell-parsing-buffer"))
-  (save-excursion (neverb-preparse parsebuffer foobegin fooend))
-  (set-buffer parsebuffer)
+(defun neverb-preprocess (parsebuffer pbegin pend)
+  "Strips string literals and comments on given offset"
+  (with-current-buffer parsebuffer (goto-char 0))
   (save-excursion
-	(goto-char 0)
-	(if (string= "data" (neverb-get-next-word))
-		(neverb-indentate-data (neverb-parse-haskell-node-data)))
+	(lexical-let ((skip nil) (ch nil) (tch nil))
+	  (goto-char pbegin)
+	  (while (and (<= (point) pend) (not (eobp)))
+		(setq ch (following-char))
+		(setq tch (neverb-maybe-buffer-substring 2))
+		(if (or (char-equal ch ?\") (char-equal ch ?\'))
+			(progn
+			  (setq skip t)
+			  (neverb-preprocess-skip-quote ch)))
+		(if (or (string= "--" tch) (neverb-is-empty-line))
+			(progn
+			  (setq skip t)
+			  (end-of-line)))
+		(if (string= "{-" tch)
+			(progn
+			  (setq skip t)
+			  (neverb-preprocess-skip-comment)))
+		(if skip (setq skip nil) (with-current-buffer parsebuffer (insert ch)))
+		(if (not (eobp)) (forward-char 1))
+		)))
+  (with-current-buffer parsebuffer (goto-char 0)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; PARSERS
+
+(defun neverb-make-indent (name &optional special childs)
+   (make-haskell-node 
+	:name name 
+	:line (line-number-at-pos) 
+	:indent (current-indentation)
+	:special special
+	:childs childs
+	))
+(defmacro neverb-push-with-indent (dest name &optional special childs)
+  (list 'push (list 'neverb-make-indent name special childs) dest))
+
+
+(defun neverb-parse-group (cur)
+  (lexical-let ((skip t)
+				(ch nil)
+				(co nil)
+				(cc nil)
+				(cs nil)
+				(cn nil)
+				(ce nil)
+				(parse-result nil))
+	(case cur
+	  (?\{ 
+	   (progn (setq co ?\{)
+			  (setq cc ?\})
+			  (setq cs ?\,)
+			  (setq cn 'node-group-block)
+			  (setq ce 'node-group-block-entry)))
+
+	  (?\( 
+	   (progn (setq co ?\()
+			  (setq cc ?\))
+			  (setq cs ?\,)
+			  (setq cn 'node-group-tuple)
+			  (setq ce 'node-group-tuple-entry)))
+	  (?\[
+	   (progn (setq co ?\[)
+			  (setq cc ?\])
+			  (setq cs ?\,)
+			  (setq cn 'node-group-list)
+			  (setq ce 'node-group-list-entry))))
+	(if (not (neverb-end-is-near)) 
+		(progn
+		  (forward-char 1)
+		  (setq parse-result (neverb-make-indent cn))
+		  (skip-chars-forward "[:space:]")
+		  (if (and 
+			   (not (char-equal cc (following-char))) 
+			   (not (char-equal co (following-char))))
+			  (push (neverb-make-indent ce) (haskell-node-childs parse-result)))))
+	(while skip
+	  (setq ch (following-char))
+	  (if (not (neverb-end-is-near))  (forward-char 1))
+
+	  (if (and (not (char-equal ch cur))
+			   (or (char-equal ch ?\()
+				   (char-equal ch ?\{)
+				   (char-equal ch ?\[)))
+		  (push
+		   (neverb-make-indent ce nil (neverb-parse-group ch))
+		   (haskell-node-childs parse-result)))
+
+	  (if (char-equal ch cs)
+			(push (neverb-make-indent ce) (haskell-node-childs parse-result)))
+
+	  (if (char-equal ch co)
+			(push 
+			 (neverb-make-indent ce nil (neverb-parse-group cur)) 
+			 (haskell-node-childs parse-result)))
+
+ 	  (if (char-equal ch cc) (setq skip nil))
+	  (if (neverb-end-is-near) (setq skip nil) (skip-chars-forward "[:space:]")))
+	parse-result))
+
+(defun neverb-parse-data ()
+  (lexical-let (
+				(parse-result nil) 
+				(tmp nil)
+				(skipped 0)
+				(skip t))
+	(neverb-push-with-indent parse-result 'node-data)
+	(if (neverb-get-next-haskell-word)
+		(neverb-push-with-indent parse-result 'node-data-name))
+	(if (neverb-get-next-word)
+		(neverb-push-with-indent parse-result 'node-data-eq-sign (- (current-column) 1)))
+	(while (not (neverb-end-is-near))
+	  (skip-chars-forward "[:space:]")
+	  (case (following-char)
+		((?\{ ?\| ?d) ()) 
+		(t (if (neverb-get-next-haskell-word)
+			   (progn
+				 (neverb-push-with-indent parse-result 'node-data-variant)
+				 (skip-chars-forward "[:space:]")
+				 (if (> (neverb-skip-string-forward "{" "|" "deriving") 0)
+					 (save-excursion
+					   (skip-chars-backward "[:space:]")
+					   (push
+						(neverb-make-indent 'node-data-variant-content)
+						(haskell-node-childs (first parse-result)))))))))
+	  (case (following-char)
+		(?\{ (push
+			  (neverb-parse-group ?\{)
+			  (haskell-node-childs (first parse-result))))
+		(?| (skip-chars-forward "|"))
+		(?d (progn
+			  (neverb-get-next-haskell-word)
+			  (skip-chars-forward "[:space:]")
+			  (neverb-push-with-indent parse-result 'node-data-deriving)
+			  (setq tmp (neverb-parse-group ?\())
+			  (if tmp (push tmp (haskell-node-childs (first parse-result))))))
+		(t (skip-chars-forward "="))))
+	parse-result))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; INDENTATORS
+
+(defun neverb-indentate-group (parsed-result)
+  (lexical-let ((indent (neverb-get-indent "base")))
+;	(print parsed-result)
+;	(print indent)
+	))
+
+ (defmacro neverb-maybe-indent (key item line pline rest)
+	(list 'if item
+		(list 'if (list '> (list 'haskell-node-line item) line)
+			(list 'progn
+;				  (list 'print rest)
+				  (list 'if (list 'char-equal last-input-event ?\r)
+						(list 'neverb-mod-indent "desired"
+							  (list 'neverb-lookup-indent key))
+						(list 'neverb-set-indent "absolute"
+							  (list '+ pline (list 'neverb-lookup-indent key)))
+						)
+				  (list 'setq line (list 'haskell-node-line item))
+				  (list 'setq pline (list 'haskell-node-indent item))
+			  )
+;			(list 'progn
+;				  (list 'print "NO")
+;				  )
+			)
+;		(list 'print "IN")
+	  )
 	)
-  (kill-buffer parsebuffer)
-)
+
+(defun neverb-indentate-data (parsed-result)
+  (lexical-let ((current-line 0)
+				(prev-line-indent 0)
+				(node-data nil)
+				(node-name nil)
+				(node-eq-sign nil))
+	(setq node-data (neverb-take-drop parsed-result 1))
+	(neverb-maybe-indent "data-open" node-data current-line prev-line-indent parsed-result)
+
+	(setq node-data-name (neverb-take-drop parsed-result 1))
+	(neverb-maybe-indent "data-name" node-data-name current-line prev-line-indent parsed-result)
+
+	(setq node-data-eq-sign (neverb-take-drop parsed-result 1))   	
+	(neverb-maybe-indent "data-eq-sign" node-data-eq-sign current-line prev-line-indent parsed-result)
+
+;	(if node-data 
+;		(progn
+;		  (neverb-set-indent "absolute" (haskell-node-indent node-data))
+;		  (setq prev-line-indent (haskell-node-indent node-data))
+;		  (setq current-line (haskell-node-line node-data))
+;		  (neverb-set-indent "desired" (neverb-lookup-indent "data-open"))))
+
+
+
+  ))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; EXTERNALS
+
+(defun neverb-parse (pbegin pend)
+  (save-excursion
+	(lexical-let ((parsebuffer nil))
+	  (setq parsebuffer (generate-new-buffer "haskell-parsing-buffer"))
+	  (neverb-preprocess parsebuffer pbegin pend)
+	  (set-buffer parsebuffer)
+	  (goto-char 0)
+	  (setq parse-result nil)
+	  (skip-chars-forward "[:space:]")
+	  (if (string= "data" (neverb-get-next-word))
+		  (neverb-indentate-data (neverb-reverse-all (neverb-parse-data))))
+	  (kill-buffer parsebuffer))))
 
 (defun neverb-indent ()
   (interactive)
-  (neverb-set-absolute-indent 0)
-;  (print (neverb-lookup-indent "data-variant"))
-  (save-excursion
-	(setq currline (thing-at-point 'line))
-	(setf 
-	 (gethash "base" neverb-indent-levels) 
-	 (number-to-string (neverb-get-absolute-indent)))
-	(neverb-mod-absolute-indent "base")
-	
-	(end-of-line)
-	(setq fooend (point))
-	(neverb-scroll-to-root-node)
-	(beginning-of-line)
-	(setq foobegin (point))
-	
-	(setq firstline (thing-at-point 'line))
-	(neverb-parse foobegin fooend)
 
-	)
-;  (print (gethash "absolute" neverb-indent-levels))
-  (if (not (string= currline firstline))
+  (lexical-let ((pbegin 0) (pend 0) (lastline 0) (firstline 0))
+	(save-excursion
+	  
+	  (setq lastline (line-number-at-pos))
+	  (neverb-set-indent "base" (neverb-get-absolute-indent))
+	  (neverb-set-indent "desired" 0)
+	  (neverb-set-indent "absolute" 0)
+
+	  (end-of-line)
+	  (setq pend (point))
+	  (neverb-scroll-to-root-node)
+	  (beginning-of-line)
+	  (setq pbegin (point))
+	  (print (thing-at-point 'line))
+	  (setq firstline (line-number-at-pos))
+	  
+	  (neverb-parse pbegin pend)
+	  )
+  (if (/= lastline firstline)
 	  (progn
-		(setq left-margin (string-to-number (gethash "absolute" neverb-indent-levels)))
-		(indent-to-left-margin)
-		)
-	)
-  )
-
+		(setq left-margin 
+			  (+ (neverb-get-indent "absolute") (neverb-get-indent "desired")))
+		(indent-to-left-margin)))
+))
 
 (defun turn-on-haskell-neverb-indent ()
   (set (make-local-variable 'indent-line-function) 'neverb-indent)
+  (local-set-key (kbd "<f2>") 'neverb-is-empty-line)
   (run-hooks 'haskell-neverb-indent-hook))
 
 (provide 'haskell-neverb-indent)
